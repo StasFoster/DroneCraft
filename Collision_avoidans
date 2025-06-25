@@ -1,0 +1,65 @@
+import logging
+import pathlib
+import sys
+
+import rospy
+from clover.srv import SetLEDEffect
+
+from skyros.drone import Drone
+
+# Initialize logging
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
+
+# Initialize drone
+peer = Drone(pathlib.Path(__file__).parent / "zenoh-config.json5")
+peer.logger.setLevel(logging.INFO)
+peer.logger.addHandler(logging.StreamHandler(stream=sys.stdout))
+rospy.init_node(peer.name)
+set_effect = rospy.ServiceProxy('led/set_effect', SetLEDEffect)
+with peer:
+    logger.info("Drone started...")
+    logger.info("Waiting for other drones...")
+    peer.wait_for_peer_amount(3)  # Wait for at least one other drone
+    logger.info(f"Connected peers: {peer.get_peers()}")
+
+    # Take off
+    peer.takeoff(z=0.5, delay=7.5)
+    peer.wait(2.5)
+
+    # Navigate with collision avoidance
+     # Navigate with collision avoidance
+    waypoints1 = [       #main VP
+        (0.0, 0.0, 1.5),
+        (-0.2, 0.6, 1.5),
+        (-0.2, 0.6, 0.4)
+    ]
+
+    waypoints2 = [ # LP
+        (-1.0, 0.0, 1.5),
+        (0.22, 0.71, 1.5),
+        (0.22, 0.71, 0.4)
+    ]
+    waypoints3 = [ # SA
+        (1.0, 0.0, 1.5),
+        (0.22, 0.41, 1.5), 
+        (0.22, 0.41, 1.5) 
+    ]
+    waypoints4 = [ # PA
+   x_start, y_start, z_start = waypoints[0]
+    try:
+        peer.navigate_wait(x=x_start, y=y_start, z=z_start, frame_id="aruco_map")
+
+        set_effect(r=255, g=0, b=0)  # fill strip with red color
+        rospy.sleep(0.5)
+
+        set_effect(r=0, g=100, b=0)  # fill strip with green color
+        rospy.sleep(0.4)
+        for x, y, z in waypoints:
+            logger.info(f"Navigating to waypoint: ({x}, {y}, {z})")
+            peer.navigate_with_avoidance(x=x, y=y, z=z, frame_id="aruco_map", timeout=20.0)
+            peer.wait(1)
+    finally:
+        # Return to start and land
+        peer.navigate_wait(x=x_start, y=y_start, z=1.0, frame_id="aruco_map")
+        peer.land()
